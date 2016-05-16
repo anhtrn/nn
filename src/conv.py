@@ -12,7 +12,7 @@ in detail.  Consult the original text for more details.
 from collections import Counter
 
 import time
-from openpyxl import Workbook
+import pandas as pd
 from openpyxl import load_workbook
 import matplotlib
 matplotlib.use('Agg')
@@ -25,18 +25,21 @@ import network3
 from network3 import sigmoid, tanh, ReLU, Network
 from network3 import ConvPoolLayer, FullyConnectedLayer, SoftmaxLayer
 
-# Create workbook & worksheet
-wb = Workbook()
-wb_name = 'demo.xlsx'
-wb.save(wb_name)
-
 training_data, validation_data, test_data = network3.load_data_shared(
-												batch1_name="../data/frog_horse", 
-                                  				batch2_name="../data/frog_horse_validation",
-	                              				batch3_name="../data/frog_horse_test")
+                                                batch1_name="../data/airplane_automobile", 
+                                                batch2_name="../data/airplane_automobile_validation",
+                                                batch3_name="../data/airplane_automobile_test")
 mini_batch_size = 100
+n_iterations = 3
 
-def shallow(n=5, epochs=30, wb_name='demo.xlsx'):
+def shallow(wbName, n=n_iterations, epochs=30):
+    # open output excel file and load to dataframe
+    df1 = pd.read_excel(open(wbName, 'rb'), sheetname='Sheet1')    
+    book = load_workbook(wbName)
+    writer = pd.ExcelWriter(wbName, engine='openpyxl')         
+    writer.book = book
+    writer.sheets = dict((ws.title, ws) for ws in book.worksheets)
+    
     nets = []
     for j in range(n):
         print "\nA shallow net with 100 hidden neurons"
@@ -46,21 +49,37 @@ def shallow(n=5, epochs=30, wb_name='demo.xlsx'):
 
         start1 = time.time()
         current_test_accuracy = net.SGD(
-            training_data, epochs, mini_batch_size, 0.1, 
-            validation_data, test_data)
+            training_data, epochs, mini_batch_size, 0.1, validation_data, test_data)
         end1 = time.time()
         print "*** Time Elapsed %f" % (end1-start1)
         
-        wb_ = load_workbook(wb_name)
-        ws = wb_.worksheets[0]
-        ws.cell(row=1, column=2*j+1).value = current_test_accuracy
-        ws.cell(row=1, column=2*j+2).value = (end1-start1)
-        wb_.save(wb_name)
+        # write results to dataframe
+        df1.iloc[0, 3*j] = current_test_accuracy
+        df1.iloc[0, 3*j+1] = 1 - current_test_accuracy
+        df1.iloc[0, 3*j+2] = end1 - start1
 
         nets.append(net)
+        
+    # calculate mean and std for all accuracies, errors, and times recorded
+    for k in range(0, 3):
+        df1.iloc[0, 3*n+2*k] = np.mean([df1.iloc[0, index1] for index1 in range(k, 3*n, 3)])
+        df1.iloc[0, 3*n+2*k+1] = np.std([df1.iloc[0, index2] for index2 in range(k, 3*n, 3)])
+        
+    # save to file
+    df1.to_excel(writer, 'Sheet1')
+    writer.save()
+    
     return nets 
 
-def basic_conv(n=5, epochs=30, wb_name='demo.xlsx'):
+def basic_conv(wbName, n=n_iterations, epochs=30):
+    # open output excel file and load to dataframe
+    df2 = pd.read_excel(open(wbName, 'rb'), sheetname='Sheet1')    
+    book = load_workbook(wbName)
+    writer = pd.ExcelWriter(wbName, engine='openpyxl')         
+    writer.book = book
+    writer.sheets = dict((ws.title, ws) for ws in book.worksheets)
+    
+    nets = []
     for j in range(n):
         print "\nConv + FC architecture"
         net = Network([
@@ -75,14 +94,30 @@ def basic_conv(n=5, epochs=30, wb_name='demo.xlsx'):
             training_data, epochs, mini_batch_size, 0.1, validation_data, test_data)
         end2 = time.time()
         print "*** Time Elapsed %f" % (end2-start2)
+        
+        # write results to dataframe
+        # 3*n+6 is the number of columns already occupied by previous recorded
+        # results. For this to work, we are assuming shallow() is run before
+        # basic_conv()
+        df2.iloc[0, 3*n+6+3*j] = current_test_accuracy
+        df2.iloc[0, 3*n+6+3*j+1] = 1 - current_test_accuracy
+        df2.iloc[0, 3*n+6+3*j+2] = end2 - start2
+        
+    # calculate mean and std for all accuracies, errors, and times recorded
+    for k in range(0, 3):
+        df2.iloc[0, 6*n+6+4*k] = np.mean([df2.iloc[0, index1] for index1 in range(3*n+6+k, 6*n+6, 3)])
+        df2.iloc[0, 6*n+6+4*k+1] = np.std([df2.iloc[0, index2] for index2 in range(3*n+6+k, 6*n+6, 3)])
+    # calculate additive and multiplicative increase in mean accu and mean error compared to shallow()
+    for t in range(0, 2):
+        df2.iloc[0, 6*n+6+4*t+2] = (df2.iloc[0, 6*n+6+4*t] - df2.iloc[0, 3*n+2*t])
+        df2.iloc[0, 6*n+6+4*t+3] = (df2.iloc[0, 6*n+6+4*t] - df2.iloc[0, 3*n+2*t]) / df2.iloc[0, 3*n+2*t]
+        
+    # save to file
+    df2.to_excel(writer, 'Sheet1')
+    writer.save()
 
-        wb_ = load_workbook(wb_name)
-        ws = wb_.worksheets[0]
-        ws.cell(row=1, column=2*n+4+2*j+1).value = current_test_accuracy
-        ws.cell(row=1, column=2*n+4+2*j+2).value = (end2-start2)
-        wb_.save(wb_name)
-    return net 
-
+    return net
+    
 '''
 def omit_FC():
     for j in range(3):
@@ -305,8 +340,32 @@ def run_experiments():
     can be generated by running expand_mnist.py.
 
     """
-    shallow()
-    basic_conv()
+    # create an empty Excel spreadsheet
+    wbName = 'output.xlsx'
+    wb = pd.ExcelWriter(wbName)
+    # first row entry (index) is name of current experiment 
+    index = ['airplane_automobile']
+    # names of each column of results in each run
+    column_names = ['accu', 'error', 'time']
+    # multiple column names
+    mcn = []
+    # columns for shallow()
+    for i in range(0, n_iterations):
+        mcn = mcn + column_names
+    mcn = mcn + ['mean accu', 'std accu', 'mean error', 'std error', 'mean time', 'std time']
+    # columns for basic_conv()
+    for j in range(0, n_iterations):
+        mcn = mcn + column_names
+    mcn = mcn + ['mean accu', 'std accu', 'additive increase', 'multipli increase', 'mean error', 'std error', 'additive increase', 'multipli increase', 'mean time', 'std time']
+    
+    # create pandas DataFrame based on information above
+    df = pd.DataFrame(index=index, columns=mcn)
+    # save to file
+    df.to_excel(wb, 'Sheet1')
+    wb.save()
+
+    shallow(wbName=wbName)
+    basic_conv(wbName=wbName)
     '''
     omit_FC()
     dbl_conv(activation_fn=sigmoid)
@@ -329,5 +388,3 @@ def run_experiments():
     plt = plot_filters(nets[0], 1, 8, 5)
     plt.savefig("net_full_layer_1.png")
     '''
-
-wb.save(wb_name)
